@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<title>Kiosk Deck</title>
+<style>
+  :root{
+    --bg: #14181c;
+    --slot: #1e2529;
+    --slot-border: #2c353b;
+    --accent: #ff9a3c;
+    --warn: #e0563c;
+    --text: #e8ecef;
+    --text-dim: #7c8891;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color: transparent;}
+  html,body{
+    margin:0; width:1024px; height:600px; overflow:hidden;
+    background:var(--bg); color:var(--text);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    user-select:none;
+  }
+  #frame{ width:1024px; height:600px; padding:14px 18px; display:flex; flex-direction:column; gap:10px; }
+  #topbar{ display:flex; justify-content:space-between; align-items:center; padding:0 4px; }
+  #topbar .title{font-size:14px; letter-spacing:.3px; color:var(--text-dim); cursor:pointer;}
+  #topbar .right{ display:flex; align-items:center; gap:14px; }
+  #topbar .clock{font-size:20px; font-variant-numeric: tabular-nums;}
+  #edit-toggle{
+    width:30px; height:30px; border-radius:8px; border:1px solid var(--slot-border);
+    background:var(--slot); color:var(--text-dim); font-size:15px;
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+  }
+  #edit-toggle.active{ background:var(--accent); color:#1a1300; border-color:var(--accent); }
+
+  #grid{
+    flex:1;
+    display:grid;
+    grid-template-columns: repeat(6, 1fr);
+    grid-template-rows: repeat(4, 1fr);
+    gap:10px;
+  }
+  .slot{
+    position:relative;
+    background:var(--slot);
+    border:1px solid var(--slot-border);
+    border-radius:12px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:5px;
+    cursor:pointer;
+    text-decoration:none; color:var(--text);
+    transition: transform .08s ease, background .12s ease;
+    touch-action:none;
+  }
+  .slot:active{ transform: scale(.93); background:#262f35; }
+  .slot .icon{ width:34px; height:34px; object-fit:contain; border-radius:7px; pointer-events:none; }
+  .slot .label{ font-size:10.5px; color:var(--text-dim); text-align:center; padding:0 4px; pointer-events:none; }
+  .slot.needs-edit{ border-color: var(--warn); }
+  .slot.needs-edit .label{ color: var(--warn); }
+
+  body.editing .slot{ animation: wiggle .22s infinite; }
+  @keyframes wiggle{ 0%{transform:rotate(-0.6deg);} 50%{transform:rotate(0.6deg);} 100%{transform:rotate(-0.6deg);} }
+  body.editing .slot.dragging{ animation:none; opacity:.4; }
+  .slot .del-badge{
+    display:none; position:absolute; top:-6px; right:-6px; width:20px; height:20px;
+    background:var(--warn); border-radius:50%; align-items:center; justify-content:center;
+    font-size:12px; color:#fff; z-index:2;
+  }
+  body.editing .slot .del-badge{ display:flex; }
+  .slot.add-slot{ border-style:dashed; color:var(--text-dim); font-size:26px; }
+
+  #edit-overlay{
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,.6);
+    align-items:center; justify-content:center; z-index:10;
+  }
+  #edit-overlay.open{ display:flex; }
+  #edit-card{
+    background:var(--slot); border:1px solid var(--slot-border); border-radius:14px;
+    padding:20px; width:420px; display:flex; flex-direction:column; gap:12px;
+  }
+  #edit-card h3{ margin:0; font-size:15px; color:var(--text-dim); font-weight:normal; }
+  #edit-card input{
+    background:#141a1e; border:1px solid var(--slot-border); border-radius:8px;
+    color:var(--text); font-size:14px; padding:10px 12px; outline:none;
+  }
+  #edit-card input:focus{ border-color:var(--accent); }
+  #edit-card .row{ display:flex; gap:10px; }
+  #edit-card button{
+    flex:1; padding:10px; border-radius:8px; border:none; font-size:13px; cursor:pointer;
+  }
+  #btn-save{ background:var(--accent); color:#1a1300; font-weight:600; }
+  #btn-cancel{ background:#2c353b; color:var(--text); }
+</style>
+</head>
+<body>
+<div id="frame">
+
+  <div id="topbar">
+    <div class="title" id="title-tap">SOMENGIL · ATALHOS</div>
+    <div class="right">
+      <div class="clock" id="clock">--:--</div>
+      <div id="edit-toggle">✎</div>
+    </div>
+  </div>
+
+  <div id="grid"></div>
+
+</div>
+
+<div id="edit-overlay">
+  <div id="edit-card">
+    <h3>Editar atalho</h3>
+    <input id="input-label" placeholder="Nome">
+    <input id="input-url" placeholder="Link (https://... ou file://...)">
+    <div class="row">
+      <button id="btn-cancel">Cancelar</button>
+      <button id="btn-save">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const DEFAULT_SHORTCUTS = [
+    { label:"Nova Aba", url:"https://www.google.com", domain:"google.com" },
+    { label:"Google Drive", url:"https://drive.google.com", domain:"drive.google.com" },
+    { label:"Gmail", url:"https://mail.google.com", domain:"mail.google.com" },
+    { label:"Sheets", url:"https://sheets.google.com", domain:"sheets.google.com" },
+    { label:"Slides", url:"https://slides.google.com", domain:"slides.google.com" },
+    { label:"Docs", url:"https://docs.google.com", domain:"docs.google.com" },
+    { label:"SGI", url:"https://EDITAR-URL-SGI", domain:"somengil.pt" },
+    { label:"GitHub", url:"https://github.com", domain:"github.com" },
+    { label:"Claude", url:"https://claude.ai", domain:"claude.ai" },
+    { label:"ChatGPT", url:"https://chat.openai.com", domain:"chat.openai.com" },
+    { label:"Skywork", url:"https://skywork.ai", domain:"skywork.ai" },
+    { label:"Hugging Face", url:"https://huggingface.co", domain:"huggingface.co" },
+    { label:"WhatsApp Web", url:"https://web.whatsapp.com", domain:"whatsapp.com" },
+    { label:"Spotify", url:"https://open.spotify.com", domain:"spotify.com" },
+    { label:"YouTube", url:"https://youtube.com", domain:"youtube.com" },
+    { label:"RNC's", url:"https://EDITAR-URL-RNC", domain:"somengil.pt" },
+    { label:"Documentos", url:"file:///EDITAR/caminho/Documentos", domain:"somengil.pt" },
+    { label:"Photopea", url:"https://www.photopea.com", domain:"photopea.com" },
+    { label:"Brave", url:"action:open_brave", domain:"brave.com" },
+    { label:"Edge", url:"action:open_edge", domain:"microsoft.com" },
+    { label:"VS Code", url:"action:open_vscode", domain:"code.visualstudio.com" },
+    { label:"Cursor", url:"action:open_cursor", domain:"cursor.sh" },
+    { label:"AppSheet", url:"https://www.appsheet.com", domain:"appsheet.com" },
+    { label:"SmartThings", url:"https://my.smartthings.com", domain:"smartthings.com" },
+  ];
+
+  const STORAGE_KEY = "somengil_kiosk_shortcuts_v1";
+  const API_BASE = "http://localhost:5000/action";
+
+  function loadShortcuts(){
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(raw) return JSON.parse(raw);
+    }catch(e){}
+    return DEFAULT_SHORTCUTS.slice();
+  }
+  function saveShortcuts(list){
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+  }
+
+  let shortcuts = loadShortcuts();
+  let editing = false;
+  let editIndex = null;
+
+  const grid = document.getElementById('grid');
+  const editToggle = document.getElementById('edit-toggle');
+  const overlay = document.getElementById('edit-overlay');
+  const inputLabel = document.getElementById('input-label');
+  const inputUrl = document.getElementById('input-url');
+
+  function faviconFor(item){
+    if(item.url.startsWith('action:')) return `https://www.google.com/s2/favicons?domain=${item.domain}&sz=64`;
+    return `https://www.google.com/s2/favicons?domain=${item.domain || (new URL(item.url, location.href)).hostname}&sz=64`;
+  }
+
+  function render(){
+    grid.innerHTML = "";
+    shortcuts.forEach((item, i) => {
+      const el = document.createElement('div');
+      el.className = 'slot' + (item.url.includes('EDITAR') ? ' needs-edit' : '');
+      el.dataset.index = i;
+      el.innerHTML = `
+        <img class="icon" src="${faviconFor(item)}" alt="">
+        <div class="label">${item.label}</div>
+        <div class="del-badge">✕</div>
+      `;
+      grid.appendChild(el);
+    });
+    if(editing){
+      const addEl = document.createElement('div');
+      addEl.className = 'slot add-slot';
+      addEl.id = 'add-slot';
+      addEl.textContent = '+';
+      grid.appendChild(addEl);
+    }
+    attachHandlers();
+  }
+
+  function openEditor(index){
+    editIndex = index;
+    if(index === null){
+      inputLabel.value = ""; inputUrl.value = "";
+    }else{
+      inputLabel.value = shortcuts[index].label;
+      inputUrl.value = shortcuts[index].url;
+    }
+    overlay.classList.add('open');
+    inputLabel.focus();
+  }
+  function closeEditor(){ overlay.classList.remove('open'); editIndex = null; }
+
+  document.getElementById('btn-cancel').addEventListener('click', closeEditor);
+  document.getElementById('btn-save').addEventListener('click', () => {
+    const label = inputLabel.value.trim();
+    const url = inputUrl.value.trim();
+    if(!label || !url) return;
+    let domain = "";
+    try{ domain = new URL(url.startsWith('action:') ? 'https://x' : url).hostname; }catch(e){ domain = ""; }
+    if(editIndex === null){
+      shortcuts.push({ label, url, domain });
+    }else{
+      shortcuts[editIndex] = { label, url, domain };
+    }
+    saveShortcuts(shortcuts);
+    closeEditor();
+    render();
+  });
+
+  editToggle.addEventListener('click', () => {
+    editing = !editing;
+    document.body.classList.toggle('editing', editing);
+    editToggle.classList.toggle('active', editing);
+    render();
+  });
+
+  function handleTap(el){
+    const i = parseInt(el.dataset.index);
+    const item = shortcuts[i];
+    if(item.url.startsWith('action:')){
+      const action = item.url.replace('action:', '');
+      fetch(`${API_BASE}/${action}`, { method:"POST" }).catch(()=>{});
+    }else{
+      window.open(item.url, '_blank');
+    }
+  }
+
+  let dragEl = null, dragIndex = null, startX=0, startY=0, moved=false;
+
+  function attachHandlers(){
+    document.querySelectorAll('.slot[data-index]').forEach(el => {
+      el.addEventListener('pointerdown', onPointerDown);
+      el.querySelector('.del-badge').addEventListener('click', (e) => {
+        e.stopPropagation();
+        const i = parseInt(el.dataset.index);
+        shortcuts.splice(i, 1);
+        saveShortcuts(shortcuts);
+        render();
+      });
+    });
+    const addSlot = document.getElementById('add-slot');
+    if(addSlot) addSlot.addEventListener('click', () => openEditor(null));
+  }
+
+  function onPointerDown(e){
+    const el = e.currentTarget;
+    dragEl = el; dragIndex = parseInt(el.dataset.index);
+    startX = e.clientX; startY = e.clientY; moved = false;
+    el.setPointerCapture(e.pointerId);
+    el.addEventListener('pointermove', onPointerMove);
+    el.addEventListener('pointerup', onPointerUp);
+  }
+  function onPointerMove(e){
+    const dx = Math.abs(e.clientX - startX), dy = Math.abs(e.clientY - startY);
+    if(dx > 8 || dy > 8) moved = true;
+    if(editing && moved){
+      dragEl.classList.add('dragging');
+      const target = document.elementFromPoint(e.clientX, e.clientY);
+      const targetSlot = target && target.closest('.slot[data-index]');
+      if(targetSlot && targetSlot !== dragEl){
+        const targetIndex = parseInt(targetSlot.dataset.index);
+        const [moved_] = shortcuts.splice(dragIndex, 1);
+        shortcuts.splice(targetIndex, 0, moved_);
+        dragIndex = targetIndex;
+        saveShortcuts(shortcuts);
+        render();
+      }
+    }
+  }
+  function onPointerUp(e){
+    dragEl.classList.remove('dragging');
+    dragEl.removeEventListener('pointermove', onPointerMove);
+    dragEl.removeEventListener('pointerup', onPointerUp);
+    if(!moved){
+      if(editing) openEditor(dragIndex);
+      else handleTap(dragEl);
+    }
+    dragEl = null; dragIndex = null;
+  }
+
+  function tick(){
+    const d = new Date();
+    document.getElementById('clock').textContent =
+      d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
+  }
+  tick(); setInterval(tick, 1000 * 10);
+
+  render();
+</script>
+</body>
+</html>
