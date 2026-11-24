@@ -1,0 +1,11 @@
+Adapta o ficheiro HTML (`kiosk_launcher.html`) e cria um pequeno servidor local no PC (ex.: Python + Flask com CORS) para que todos os cliques nos atalhos do deck executem a ação no PC em vez de a abrirem no ecrã onde foi feito o toque.
+
+O que tem de ser feito:
+1. No HTML (`kiosk_launcher.html`), substituir `window.open(item.url, '_blank')` por chamadas HTTP (`POST`) para o servidor no PC (ex.: `http://<IP-DO-PC>:5000/open-url`), mantendo também o envio de `action:*` para `http://<IP-DO-PC>:5000/action`.
+2. No PC, criar um servidor local na porta `5000` (com `0.0.0.0` e CORS ativo) que receba `/open-url` e abra sempre o URL no Google Chrome do PC (ou trate caminhos `file://` de forma segura), e que receba `/action` para lançar aplicações locais (`open_brave`, `open_edge`, `open_vscode`, `open_cursor`, etc.).
+3. Servir o HTML por HTTP local (em vez de `file://`, quando aplicável) e garantir que a firewall do PC permite ligações na porta `5000` na rede local.
+
+Porquê:
+- Se o ecrã do deck estiver ligado a outro dispositivo (como um Raspberry Pi ou tablet) ou a um ecrã secundário, o `window.open` abre o link no navegador do próprio ecrã do deck em vez de o abrir no PC.
+- O `localhost` dentro do navegador refere-se sempre à máquina onde o navegador está a correr; para o deck controlar o PC, tem de apontar explicitamente para o endereço IP do PC na rede local.
+- O navegador não consegue lançar programas nativos do PC nem abrir diretamente aplicações/pastas no sistema operativo do PC por segurança — é necessário um pequeno agente/servidor local no PC para executar esses comandos.
